@@ -5,8 +5,8 @@ from openpyxl.utils import get_column_letter
 import sys
 import unicodedata
 
-COL_REGION = '1. Респондент (корхона) жойлашган ҳудуд:'
-COL_TARMOQ = '4.1. Саноат фаолият турлари:'
+COL_REGION = 'region'
+COL_TARMOQ = '5. Корхонанинг асосий иқтисодий фаолият тури:'
 
 def get_df():
 
@@ -18,9 +18,12 @@ def get_df():
         return False
     
 
-    df = pd.read_excel('data\db_2023_08_04.xlsx')
+    df = pd.read_excel('data\db_2024_07_26.xlsx')
 
-    df['4.1. Саноат фаолият турлари:'] = df['4.1. Саноат фаолият турлари:'].fillna(df['4. Корхонанинг асосий иқтисодий фаолият тури?'])
+    df[COL_TARMOQ] = df[COL_TARMOQ].mask(df[COL_TARMOQ] == 'Хизмат кўрсатиш', df['5.2. Хизмат кўрсатиш соҳалари:'])
+    df[COL_TARMOQ] = df[COL_TARMOQ].mask(df[COL_TARMOQ] == 'Саноат', df['5.1. Саноат фаолият турлари:'])
+    # df['5.1. Саноат фаолият турлари:'] = df['5.1. Саноат фаолият турлари:'].fillna(df['5. Корхонанинг асосий иқтисодий фаолият тури:'])
+    # df['5.1. Саноат фаолият турлари:'] = df['5.1. Саноат фаолият турлари:'].fillna(df['5.2. Хизмат кўрсатиш соҳалари:'])
     df_columns = df.copy()
 
     
@@ -31,7 +34,7 @@ def get_df():
     df_columns.dropna(axis=1, how='all', inplace=True)
 
     ### drop "others" columns and columns with numeric inputs
-    COLUMNS = [c for c in df_columns.columns.values.tolist() if not '(Бошқа)' in c and contains_cyrillic(c)]
+    COLUMNS = [c for c in df_columns.columns.values.tolist() if not '(Бошқа)' in c and (contains_cyrillic(c) or c in ['region', 'district'])]
 
     ### drop multiple choice first question
     mult_droppers = []
@@ -44,10 +47,9 @@ def get_df():
     for index in sorted(mult_droppers, reverse=True):
         del COLUMNS[index]
     ##############################################
-
     COLUMNS.pop(COLUMNS.index(COL_REGION))
     COLUMNS.pop(COLUMNS.index(COL_TARMOQ))
-    COLUMNS.pop(COLUMNS.index('2. Туман (шаҳар) номи:'))
+    COLUMNS.pop(COLUMNS.index('district'))
     return df, COLUMNS
 
 def crosstab(df, column):
@@ -73,17 +75,27 @@ def to_excel(ctabs, filename_out):
     reg_format = workbook.add_format({'text_wrap': True,
                                       'bg_color': '#B7DEE8'})
     
-    tarmoq_idx = ctabs[0].columns.values.tolist().index('Автотранспорт воситалари ва транспорт ускуналари')
-    
+
+
+  
+
     for ctab in ctabs:
         ctab = ctab.reset_index(drop=False).T.reset_index(drop=False).T
         init_row = cur_row
+
+        for idx, c in enumerate(ctab.head(1).values.tolist()[0]):
+            if idx == 0:
+                continue
+            tarmoq_idx = idx
+            if not(c.strip().endswith('вилояти') or c.strip().endswith('шаҳри')):
+                break
+            
         for ri, index in enumerate(ctab.index.values.tolist()):
             for ci, column in enumerate(ctab.columns.values.tolist()):
                 letter = get_column_letter(ci+1)
                 value = ctab.at[index, column]
                 if ri == 0:
-                    if ci <= tarmoq_idx:
+                    if ci < tarmoq_idx:
                         worksheet.write(f'{letter}{cur_row+1}', value, reg_format)
                     else:
                         worksheet.write(f'{letter}{cur_row+1}', value, tarmoq_format)
@@ -97,11 +109,21 @@ def to_excel(ctabs, filename_out):
         
 
 
-        tarmoq_letter_start = get_column_letter(tarmoq_idx+2)
-        reg_letter_end = get_column_letter(tarmoq_idx+1)
+        
 
         CHART_WIDTH = 800
-        CHART_HEIGHT = 300
+        CHART_HEIGHT = 400
+
+
+        #### find where regions stop and tarmoq start
+        for idx, c in enumerate(ctab.head(1).values.tolist()[0]):
+            if idx == 0:
+                continue
+            if not (c.strip().endswith('вилояти') or c.strip().endswith('шаҳри')):
+                break
+            reg_letter_end = get_column_letter(idx+1)
+        #############################################################
+            
         for i in range(init_row+2, cur_row+1):
             letter = get_column_letter(i)
             chart_reg.add_series({
@@ -131,12 +153,20 @@ def to_excel(ctabs, filename_out):
         chart_tarmoq = workbook.add_chart({'type': 'column', 
                                     'subtype': 'percent_stacked'})
 
+        tarmoq_letter_end = get_column_letter(ctab.shape[1])
+        for idx, c in enumerate(ctab.head(1).values.tolist()[0]):
+            if idx == 0:
+                continue
+            tarmoq_letter_start = get_column_letter(idx+1)
+            if not(c.strip().endswith('вилояти') or c.strip().endswith('шаҳри')):
+                break
+
         for i in range(init_row+2, cur_row+1):
             letter = get_column_letter(i)
             chart_tarmoq.add_series({
                     'name':f'={sheet_name}!$A${i}',
-                    'categories': f'={sheet_name}!${tarmoq_letter_start}${init_row+1}:$AI${init_row+1}',
-                    'values':     f'={sheet_name}!{tarmoq_letter_start}{i}:AI{i}',
+                    'categories': f'={sheet_name}!${tarmoq_letter_start}${init_row+1}:${tarmoq_letter_end}${init_row+1}',
+                    'values':     f'={sheet_name}!{tarmoq_letter_start}{i}:{tarmoq_letter_end}{i}',
                     'data_labels': {
                                     'value': True,
                                     'font': {'size': 10}
@@ -154,9 +184,9 @@ def to_excel(ctabs, filename_out):
                         },
                     })
 
-        worksheet.insert_chart(f'{tarmoq_letter_start}{cur_row+1}', chart_tarmoq)
+        worksheet.insert_chart(f'{"O"}{cur_row+1}', chart_tarmoq)
 
-        cur_row += 15
+        cur_row += 22
 
         
         
