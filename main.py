@@ -18,7 +18,7 @@ def get_df():
         return False
     
 
-    df = pd.read_excel('data\db_2024_07_26.xlsx')
+    df = pd.read_excel('data\db_2024_07_27.xlsx')
 
     df[COL_TARMOQ] = df[COL_TARMOQ].mask(df[COL_TARMOQ] == 'Хизмат кўрсатиш', df['5.2. Хизмат кўрсатиш соҳалари:'])
     df[COL_TARMOQ] = df[COL_TARMOQ].mask(df[COL_TARMOQ] == 'Саноат', df['5.1. Саноат фаолият турлари:'])
